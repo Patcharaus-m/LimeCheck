@@ -50,7 +50,6 @@ const provinces = [
     { name: 'กำแพงเพชร', value: 'Kamphaeng Phet' },
     { name: 'นครสวรรค์', value: 'Nakhon Sawan' },
     { name: 'อุทัยธานี', value: 'Uthai Thani' },
-    { name: 'พิจิตร', value: 'Phichit' },
     { name: 'เพชรบูรณ์', value: 'Phetchabun' },
 
     // ภาคตะวันออกเฉียงเหนือ (อีสาน)
@@ -134,8 +133,8 @@ const provinces = [
               className="rounded-3 border-light-subtle shadow-sm py-2"
               style={{ cursor: 'pointer' }}
             >
-              {provinces.map((p) => (
-                <option key={p.value} value={p.value}>{p.name}</option>
+              {provinces.map((p, index) => (
+                <option key={index} value={p.value}>{p.name}</option>
               ))}
             </Form.Select>
           </Col>

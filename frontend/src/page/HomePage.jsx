@@ -50,20 +50,30 @@ const HomePage = () => {
       const formData = new FormData();
       formData.append('file', imageFile);
 
+      console.log('Sending request to:', API_URL);
       const response = await fetch(API_URL, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        console.error(`Server responded with status ${response.status}:`, errorBody);
         throw new Error(`เซิร์ฟเวอร์ตอบกลับผิดพลาด (${response.status})`);
       }
 
       const data = await response.json();
+      console.log('Prediction result:', data);
       setPredictions(data.predictions);
     } catch (err) {
       console.error('Prediction error:', err);
-      setError(err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      console.error('Error name:', err.name);
+      console.error('Error message:', err.message);
+      if (err.message === 'Failed to fetch') {
+        setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ — กรุณาตรวจสอบว่า Backend (http://localhost:8000) กำลังทำงานอยู่');
+      } else {
+        setError(err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      }
     } finally {
       setLoading(false);
     }
@@ -71,7 +81,22 @@ const HomePage = () => {
 
   // --- สร้างข้อความสรุปผลลัพธ์ ---
   const renderResultCard = () => {
-    if (!predictions || predictions.length === 0) return null;
+    if (!predictions) return null;
+
+    // กรณีไม่พบมะนาวในรูปภาพ
+    if (predictions.length === 0) {
+      return (
+        <div className="position-absolute bottom-0 start-0 w-100 p-3">
+          <Card className="border-0 shadow-lg py-3 px-3 rounded-4 bg-white text-center animate-up">
+            <div className="d-flex align-items-center justify-content-center gap-2 text-warning">
+              <AlertTriangle size={20} />
+              <span className="fw-bold">ไม่พบมะนาวในรูปภาพ กรุณาลองใหม่อีกครั้ง</span>
+            </div>
+            <small className="text-muted d-block mt-2">แนะนำ: ควรถ่ายรูปมะนาวทีละลูกเพื่อให้ได้ผลลัพธ์ที่แม่นยำที่สุด</small>
+          </Card>
+        </div>
+      );
+    }
 
     // ใช้ผลลัพธ์ที่มี confidence สูงสุด
     const best = predictions.reduce((a, b) => (a.confidence > b.confidence ? a : b));
@@ -123,6 +148,9 @@ const HomePage = () => {
             <div className="p-3 bg-light rounded-4 border-start border-4 border-success mt-4 d-none d-lg-block">
               <p className="m-0 text-secondary small">
                 <b>เคล็ดลับ:</b> ควรเลือกสแกนมะนาวในที่ที่มีแสงสว่างเพียงพอเพื่อให้ AI วิเคราะห์สีผิวได้แม่นยำที่สุด
+              </p>
+              <p className="m-0 text-secondary small mt-2">
+                <b>แนะนำ:</b> ควรถ่ายรูปมะนาวทีละลูกเพื่อให้ได้ผลลัพธ์ที่แม่นยำที่สุด
               </p>
             </div>
           </Col>
