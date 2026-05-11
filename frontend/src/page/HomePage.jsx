@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Container, Row, Col, Button, Card, Badge, Spinner } from 'react-bootstrap';
-import { Camera, Leaf, Search, AlertTriangle } from 'lucide-react';
+import { Camera, Leaf, Search, AlertTriangle, RefreshCw } from 'lucide-react';
 import MyNavbar from '../components/MyNavbar';
 import WeatherCard from '../components/WeatherCard'; // นำเข้า WeatherCard
 
-const API_URL = 'http://localhost:8000/predict';
+const API_URL = 'https://armlnwza-northgarden-backend.hf.space/predict';
 
 // แปลงชื่อ label จากโมเดลเป็นภาษาไทย
 const LABEL_MAP = {
@@ -21,6 +21,7 @@ const HomePage = () => {
   const [predictions, setPredictions] = useState(null);    // ผลลัพธ์จาก API
   const [error, setError] = useState(null);                // ข้อผิดพลาด
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);  // ref สำหรับเปิดกล้องโดยตรง
 
   // --- เลือกรูปภาพและเก็บไว้ใน state ---
   const handleImageSelect = (e) => {
@@ -51,14 +52,27 @@ const HomePage = () => {
       formData.append('file', imageFile);
 
       console.log('Sending request to:', API_URL);
+
+      // ใช้ AbortController เพื่อจำกัดเวลารอ (timeout 60 วินาที สำหรับ Cold Start)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
       const response = await fetch(API_URL, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '');
         console.error(`Server responded with status ${response.status}:`, errorBody);
+
+        // ตรวจสอบ status ที่บ่งบอกว่า Backend กำลังตื่น (Cold Start)
+        if (response.status === 503 || response.status === 502) {
+          throw new Error('COLD_START');
+        }
         throw new Error(`เซิร์ฟเวอร์ตอบกลับผิดพลาด (${response.status})`);
       }
 
@@ -69,8 +83,15 @@ const HomePage = () => {
       console.error('Prediction error:', err);
       console.error('Error name:', err.name);
       console.error('Error message:', err.message);
-      if (err.message === 'Failed to fetch') {
-        setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ — กรุณาตรวจสอบว่า Backend (http://localhost:8000) กำลังทำงานอยู่');
+
+      if (err.name === 'AbortError') {
+        // Timeout — เป็นไปได้ว่า Backend กำลัง Cold Start
+        setError('COLD_START');
+      } else if (err.message === 'COLD_START') {
+        setError('COLD_START');
+      } else if (err.message === 'Failed to fetch') {
+        // Network error หรือ CORS — มักเกิดจาก Backend ยังไม่พร้อม
+        setError('COLD_START');
       } else {
         setError(err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
       }
@@ -164,8 +185,11 @@ const HomePage = () => {
                     <img src={imagePreview} alt="ตัวอย่างรูปมะนาว" style={{ width: '100%', height: '400px', objectFit: 'cover', display: 'block' }} />
                     {loading && (
                       <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-75 backdrop-blur">
-                        <Spinner animation="border" variant="success" className="mb-2" />
-                        <span className="fw-bold text-success">กำลังวิเคราะห์...</span>
+                        <Spinner animation="border" variant="success" className="mb-3" style={{ width: '3rem', height: '3rem' }} />
+                        <span className="fw-bold text-success fs-5">กำลังประมวลผล...</span>
+                        <small className="text-muted mt-2 px-4 text-center" style={{ animation: 'pulse 2s ease-in-out infinite' }}>
+                          ระบบ AI อยู่บน Cloud อาจใช้เวลาสักครู่ กรุณารอ...
+                        </small>
                       </div>
                     )}
                   </div>
@@ -185,21 +209,68 @@ const HomePage = () => {
                 {!loading && error && (
                   <div className="position-absolute bottom-0 start-0 w-100 p-3">
                     <Card className="border-0 shadow-lg py-3 px-3 rounded-4 bg-white text-center">
-                      <div className="d-flex align-items-center justify-content-center gap-2 text-danger">
-                        <AlertTriangle size={18} />
-                        <small className="fw-bold">{error}</small>
-                      </div>
+                      {error === 'COLD_START' ? (
+                        <>
+                          <div className="d-flex align-items-center justify-content-center gap-2 text-warning mb-2">
+                            <AlertTriangle size={20} />
+                            <span className="fw-bold">กำลังปลุกระบบ AI</span>
+                          </div>
+                          <small className="text-muted d-block mb-3">
+                            ระบบ Backend กำลังเริ่มต้นใหม่ (Cold Start) กรุณารอสักครู่แล้วลองใหม่อีกครั้ง
+                          </small>
+                          <Button
+                            variant="warning"
+                            size="sm"
+                            className="rounded-pill px-4 fw-bold d-inline-flex align-items-center gap-2"
+                            onClick={handleScan}
+                          >
+                            <RefreshCw size={14} />
+                            ลองใหม่อีกครั้ง
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="d-flex align-items-center justify-content-center gap-2 text-danger">
+                          <AlertTriangle size={18} />
+                          <small className="fw-bold">{error}</small>
+                        </div>
+                      )}
                     </Card>
                   </div>
                 )}
               </Card>
 
+              {/* Input สำหรับเลือกจากแกลเลอรี */}
               <input type="file" accept="image/*" className="d-none" ref={fileInputRef} onChange={handleImageSelect} />
+              {/* Input สำหรับเปิดกล้องถ่ายรูปโดยตรง (มือถือ) */}
+              <input type="file" accept="image/*" capture="environment" className="d-none" ref={cameraInputRef} onChange={handleImageSelect} />
               
-              {/* ปุ่มเลือกรูป / เปลี่ยนรูป */}
+              {/* ปุ่มถ่ายรูป — แสดงเฉพาะมือถือ */}
               <Button 
                 variant="success" size="lg" 
-                className="w-100 py-4 rounded-4 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-3 btn-scan"
+                className="w-100 py-4 rounded-4 fw-bold shadow-sm d-flex d-lg-none align-items-center justify-content-center gap-3 btn-scan mb-3"
+                onClick={() => cameraInputRef.current.click()}
+                disabled={loading}
+                style={{ backgroundColor: '#10b981', border: 'none' }}
+              >
+                <Camera size={24} />
+                ถ่ายรูปมะนาว
+              </Button>
+
+              {/* ปุ่มเลือกรูปจากแกลเลอรี */}
+              <Button 
+                variant="outline-success" size="lg" 
+                className="w-100 py-3 rounded-4 fw-bold shadow-sm d-flex d-lg-none align-items-center justify-content-center gap-3"
+                onClick={() => fileInputRef.current.click()}
+                disabled={loading}
+              >
+                <Search size={20} />
+                {imagePreview ? "เปลี่ยนรูปจากแกลเลอรี" : "เลือกจากแกลเลอรี"}
+              </Button>
+
+              {/* ปุ่มเลือกรูป — แสดงเฉพาะ Desktop */}
+              <Button 
+                variant="success" size="lg" 
+                className="w-100 py-4 rounded-4 fw-bold shadow-sm d-none d-lg-flex align-items-center justify-content-center gap-3 btn-scan"
                 onClick={() => fileInputRef.current.click()}
                 disabled={loading}
                 style={{ backgroundColor: '#10b981', border: 'none' }}
